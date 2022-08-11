@@ -69,8 +69,8 @@ mod charity {
         /// Stores a single `bool` value on the storage.
         campaign_list: Mapping<CampaignCount, CampaignId>,
         campaigns: Mapping<CampaignId, Campaign>,
-        // user_campaign_donations: Mapping<AccountId, Mapping<CampaignId, Balance>>,
         campaign_count: CampaignCount,
+        // user_campaign_donations: Mapping<AccountId, Mapping<CampaignId, Balance>>,
     }
 
     impl Charity {
@@ -213,7 +213,7 @@ mod charity {
     mod tests {
         /// Imports all the definitions from the outer scope so we can use them here.
         use super::*;
-        use ink_env::{call, test};
+        use ink_env::test;
         /// Imports `ink_lang` so we can use `#[ink::test]`.
         use ink_lang as ink;
 
@@ -235,6 +235,11 @@ mod charity {
             accounts.alice
         }
 
+        // fn get_address_bob() -> AccountId {
+        //     let accounts = default_accounts();
+        //     accounts.bob
+        // }
+
         fn set_bob_caller() {
             let accounts = default_accounts();
             set_caller(accounts.bob);
@@ -254,6 +259,11 @@ mod charity {
             Charity::new()
         }
 
+        fn get_balance(account_id: AccountId) -> Balance {
+            ink_env::test::get_account_balance::<ink_env::DefaultEnvironment>(account_id)
+                .expect("Cannot get account balance")
+        }
+
         /// Test created campaign
         #[ink::test]
         fn create_campaign() {
@@ -263,20 +273,154 @@ mod charity {
             let description_test = String::from("Hello Kitty");
             let deadline_test = charity.current_timestamp_block() + 1000;
 
-            charity.create_campaign(title_test.clone(), description_test.clone(), deadline_test.clone());
+            charity.create_campaign(
+                title_test.clone(),
+                description_test.clone(),
+                deadline_test.clone(),
+            );
             let campaign_id = charity.get_campaign_id(1);
             let campaign_created = charity.get_campaign(campaign_id);
-            println!("created new instance at {:?}", campaign_created.initiator);
-            ink_env::debug_println!("created new instance at {:?}", campaign_created.initiator);
+
+            println!("created new instance at {:?}", charity.get_campaign_count());
+
             assert_eq!(campaign_created.title, title_test);
             assert_eq!(campaign_created.balance, 0);
             assert_eq!(campaign_created.description, description_test);
             assert_eq!(campaign_created.deadline, deadline_test);
             assert_eq!(campaign_created.initiator, get_address_alice());
+            assert_eq!(charity.get_campaign_count(), 1);
         }
 
         /// We test a simple use case of our contract.
         #[ink::test]
-        fn it_works() {}
+        fn donated_campaign() {
+            let mut charity = create_contract(0);
+            set_alice_caller();
+            let title_test = String::from("Kitty");
+            let description_test = String::from("Hello Kitty");
+            let deadline_test = charity.current_timestamp_block() + 1000;
+
+            charity.create_campaign(
+                title_test.clone(),
+                description_test.clone(),
+                deadline_test.clone(),
+            );
+            set_bob_caller();
+            let campaign_id = charity.get_campaign_id(1);
+
+            ink_env::test::set_value_transferred::<ink_env::DefaultEnvironment>(200);
+
+            match charity.donate_campaign(campaign_id.clone()).err() {
+                Some(_) => {
+                    assert!(false)
+                }
+                None => {}
+            };
+
+            let campaign = charity.get_campaign(campaign_id);
+
+            assert_eq!(campaign.balance, 200);
+        }
+
+        /// We test a simple use case of our contract.
+        #[ink::test]
+        fn ended_campaign() {
+            let mut charity = create_contract(0);
+            set_alice_caller();
+
+            let title_test = String::from("Kitty");
+            let description_test = String::from("Hello Kitty");
+            let deadline_test = charity.current_timestamp_block() + 1000;
+
+            charity.create_campaign(
+                title_test.clone(),
+                description_test.clone(),
+                deadline_test.clone(),
+            );
+            let campaign_id = charity.get_campaign_id(1);
+            match charity.ended_campaign(campaign_id.clone()).err() {
+                Some(_) => {
+                    assert!(false)
+                }
+                None => {}
+            };
+
+            let campaign = charity.get_campaign(campaign_id);
+
+            assert_eq!(campaign.deadline, charity.current_timestamp_block());
+        }
+
+        /// We test a simple use case of our contract.
+        ///
+        #[ink::test]
+        fn ended_campaign_must_initiator() {
+            let mut charity = create_contract(0);
+            set_alice_caller();
+
+            let title_test = String::from("Kitty");
+            let description_test = String::from("Hello Kitty");
+            let deadline_test = charity.current_timestamp_block() + 1000;
+
+            charity.create_campaign(
+                title_test.clone(),
+                description_test.clone(),
+                deadline_test.clone(),
+            );
+            let campaign_id = charity.get_campaign_id(1);
+
+            set_bob_caller();
+
+            match charity.ended_campaign(campaign_id.clone()).err() {
+                Some(err) => {
+                    assert!(err == crate::charity::Error::NotCampaignInitiator)
+                }
+                None => {
+                    assert!(false)
+                }
+            };
+          
+        }
+
+        /// We test a simple use case of our contract.
+        ///
+        #[ink::test]
+        fn withdraw_campaign_funds() {
+            let mut charity = create_contract(0);
+            set_alice_caller();
+
+            let title_test = String::from("Kitty");
+            let description_test = String::from("Hello Kitty");
+            let deadline_test = charity.current_timestamp_block() + 1000;
+            let balance_before = get_balance(get_address_alice());
+            println!("Balance before: {}", balance_before);
+            charity.create_campaign(
+                title_test.clone(),
+                description_test.clone(),
+                deadline_test.clone(),
+            );
+            let campaign_id = charity.get_campaign_id(1);
+
+            set_bob_caller();
+            ink_env::test::set_value_transferred::<ink_env::DefaultEnvironment>(200);
+
+            match charity.donate_campaign(campaign_id.clone()).err() {
+                Some(_) => {
+                    assert!(false)
+                }
+                None => {}
+            };
+
+            set_alice_caller();
+
+            match charity.ended_campaign(campaign_id.clone()).err() {
+                Some(_) => {
+                    assert!(false)
+                }
+                None => {}
+            };
+            charity.withdraw_campaign_funds(campaign_id.clone());
+            let balance_after = get_balance(get_address_alice());
+            println!("Balance before: {}", balance_after);
+        }
     }
 }
