@@ -180,6 +180,8 @@ mod charity {
                          contract's balance below minimum balance."
                 )
             }
+            self.campaigns.insert(&id_campaign, &campaign);
+
             Ok(())
         }
 
